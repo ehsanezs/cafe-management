@@ -4,7 +4,8 @@ import { useAuth } from '@/lib/auth';
 import {
   Wallet, Plus, Loader2, X, Save, AlertCircle, TrendingUp,
   TrendingDown, Receipt, ArrowDownCircle, ArrowUpCircle, Clock,
-  CheckCircle2, Search, Filter
+  CheckCircle2, Search, Filter, Landmark, BookOpen, FileText,
+  PiggyBank, Trash2, Edit3, Building2, CreditCard, Banknote
 } from 'lucide-react';
 
 type Branch = { id: string; name: string };
@@ -75,7 +76,7 @@ export function AccountingPage() {
   const { profile } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState(profile?.default_branch_id || '');
-  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'cash' | 'transactions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'cash' | 'transactions' | 'accounts' | 'journal' | 'budgets'>('overview');
   const [loading, setLoading] = useState(true);
 
   // Overview stats
@@ -102,6 +103,25 @@ export function AccountingPage() {
 
   // Transactions
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  // Financial accounts
+  const [finAccounts, setFinAccounts] = useState<FinancialAccount[]>([]);
+  const [showFinAcctModal, setShowFinAcctModal] = useState(false);
+  const [editingFinAcct, setEditingFinAcct] = useState<FinancialAccount | null>(null);
+
+  // Chart of accounts
+  const [chartAccounts, setChartAccounts] = useState<ChartAccount[]>([]);
+  const [showChartModal, setShowChartModal] = useState(false);
+  const [editingChart, setEditingChart] = useState<ChartAccount | null>(null);
+
+  // Journal entries
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [showJournalModal, setShowJournalModal] = useState(false);
+
+  // Budgets
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -198,14 +218,42 @@ export function AccountingPage() {
     setTransactions((data as Transaction[]) || []);
   }, [branchId]);
 
+  const fetchFinAccounts = useCallback(async () => {
+    const { data } = await supabase.from('financial_accounts').select('*').order('name');
+    setFinAccounts((data as FinancialAccount[]) || []);
+  }, []);
+
+  const fetchChartAccounts = useCallback(async () => {
+    const { data } = await supabase.from('chart_accounts').select('*').order('code');
+    setChartAccounts((data as ChartAccount[]) || []);
+  }, []);
+
+  const fetchJournalEntries = useCallback(async () => {
+    const { data } = await supabase
+      .from('journal_entries')
+      .select('*, debit_account:chart_accounts!journal_entries_debit_account_id_fkey(name), credit_account:chart_accounts!journal_entries_credit_account_id_fkey(name)')
+      .order('entry_date', { ascending: false })
+      .limit(50);
+    setJournalEntries((data as JournalEntry[]) || []);
+  }, []);
+
+  const fetchBudgets = useCallback(async () => {
+    const { data } = await supabase.from('budgets').select('*').order('period_start', { ascending: false });
+    setBudgets((data as Budget[]) || []);
+  }, []);
+
   useEffect(() => {
     fetchOverview();
     fetchExpenses();
     fetchRegisters();
     fetchTransactions();
-  }, [fetchOverview, fetchExpenses, fetchRegisters, fetchTransactions]);
+    fetchFinAccounts();
+    fetchChartAccounts();
+    fetchJournalEntries();
+    fetchBudgets();
+  }, [fetchOverview, fetchExpenses, fetchRegisters, fetchTransactions, fetchFinAccounts, fetchChartAccounts, fetchJournalEntries, fetchBudgets]);
 
-  const refreshAll = () => { fetchOverview(); fetchExpenses(); fetchRegisters(); fetchTransactions(); };
+  const refreshAll = () => { fetchOverview(); fetchExpenses(); fetchRegisters(); fetchTransactions(); fetchFinAccounts(); fetchChartAccounts(); fetchJournalEntries(); fetchBudgets(); };
 
   return (
     <div className="space-y-4">
@@ -221,6 +269,9 @@ export function AccountingPage() {
             { key: 'expenses', label: 'هزینه‌ها' },
             { key: 'cash', label: 'صندوق' },
             { key: 'transactions', label: 'تراکنش‌ها' },
+            { key: 'accounts', label: 'حساب‌های بانکی' },
+            { key: 'journal', label: 'دفتر روزنامه' },
+            { key: 'budgets', label: 'بودجه' },
           ] as const).map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.key ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
@@ -256,8 +307,33 @@ export function AccountingPage() {
           registerOpeningBalance={registerOpeningBalance}
           setRegisterOpeningBalance={setRegisterOpeningBalance}
         />
-      ) : (
+      ) : activeTab === 'transactions' ? (
         <TransactionsTab transactions={transactions} />
+      ) : activeTab === 'accounts' ? (
+        <AccountsTab
+          finAccounts={finAccounts}
+          onAdd={() => { setEditingFinAcct(null); setShowFinAcctModal(true); }}
+          onEdit={(a) => { setEditingFinAcct(a); setShowFinAcctModal(true); }}
+          onDelete={async (id) => { if (confirm('حذف این حساب؟')) { await supabase.from('financial_accounts').delete().eq('id', id); refreshAll(); } }}
+          chartAccounts={chartAccounts}
+          onAddChart={() => { setEditingChart(null); setShowChartModal(true); }}
+          onEditChart={(a) => { setEditingChart(a); setShowChartModal(true); }}
+          onDeleteChart={async (id) => { if (confirm('حذف این حساب از دفتر کل؟')) { await supabase.from('chart_accounts').delete().eq('id', id); refreshAll(); } }}
+        />
+      ) : activeTab === 'journal' ? (
+        <JournalTab
+          entries={journalEntries}
+          chartAccounts={chartAccounts}
+          onAdd={() => setShowJournalModal(true)}
+          onDelete={async (id) => { if (confirm('حذف این سند؟')) { await supabase.from('journal_entries').delete().eq('id', id); refreshAll(); } }}
+        />
+      ) : (
+        <BudgetsTab
+          budgets={budgets}
+          onAdd={() => { setEditingBudget(null); setShowBudgetModal(true); }}
+          onEdit={(b) => { setEditingBudget(b); setShowBudgetModal(true); }}
+          onDelete={async (id) => { if (confirm('حذف این بودجه؟')) { await supabase.from('budgets').delete().eq('id', id); refreshAll(); } }}
+        />
       )}
 
       {showExpenseModal && (
@@ -280,6 +356,709 @@ export function AccountingPage() {
           onSaved={() => { setShowRegisterModal(false); refreshAll(); }}
         />
       )}
+
+      {showFinAcctModal && (
+        <FinAccountModal account={editingFinAcct} onClose={() => setShowFinAcctModal(false)} onSaved={() => { setShowFinAcctModal(false); refreshAll(); }} />
+      )}
+      {showChartModal && (
+        <ChartAccountModal account={editingChart} onClose={() => setShowChartModal(false)} onSaved={() => { setShowChartModal(false); refreshAll(); }} />
+      )}
+      {showJournalModal && (
+        <JournalModal chartAccounts={chartAccounts} profile={profile} onClose={() => setShowJournalModal(false)} onSaved={() => { setShowJournalModal(false); refreshAll(); }} />
+      )}
+      {showBudgetModal && (
+        <BudgetModal budget={editingBudget} onClose={() => setShowBudgetModal(false)} onSaved={() => { setShowBudgetModal(false); refreshAll(); }} />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Types for financial accounts, chart, journal, budgets
+// ============================================================
+type FinancialAccount = {
+  id: string;
+  name: string;
+  account_type: string;
+  bank_name: string | null;
+  bank_branch: string | null;
+  account_number: string | null;
+  card_number: string | null;
+  iban: string | null;
+  opening_balance: number;
+  current_balance: number;
+  is_active: boolean;
+};
+
+type ChartAccount = {
+  id: string;
+  code: string;
+  name: string;
+  parent_id: string | null;
+  account_type: string;
+  level: number;
+  is_active: boolean;
+};
+
+type JournalEntry = {
+  id: string;
+  entry_number: string;
+  entry_date: string;
+  description: string | null;
+  debit_account_id: string | null;
+  credit_account_id: string | null;
+  amount: number;
+  reference_type: string | null;
+  created_at: string;
+  debit_account?: { name: string } | null;
+  credit_account?: { name: string } | null;
+};
+
+type Budget = {
+  id: string;
+  name: string;
+  period_type: string;
+  period_start: string;
+  period_end: string;
+  revenue_budget: number;
+  expense_budget: number;
+  notes: string | null;
+  created_at: string;
+};
+
+const finAcctTypeLabels: Record<string, string> = {
+  bank: 'بانک',
+  cash: 'صندوق',
+  petty_cash: 'تنخواه',
+};
+
+const chartAcctTypeLabels: Record<string, string> = {
+  asset: 'دارایی',
+  liability: 'بدهی',
+  equity: 'سرمایه',
+  revenue: 'درآمد',
+  expense: 'هزینه',
+};
+
+const chartAcctTypeColors: Record<string, string> = {
+  asset: 'bg-blue-50 text-blue-600',
+  liability: 'bg-red-50 text-red-600',
+  equity: 'bg-amber-50 text-amber-600',
+  revenue: 'bg-emerald-50 text-emerald-600',
+  expense: 'bg-orange-50 text-orange-600',
+};
+
+const budgetPeriodLabels: Record<string, string> = {
+  monthly: 'ماهانه',
+  quarterly: 'فصلی',
+  yearly: 'سالانه',
+};
+
+// ============================================================
+// Accounts Tab (Financial Accounts + Chart of Accounts)
+// ============================================================
+function AccountsTab({ finAccounts, onAdd, onEdit, onDelete, chartAccounts, onAddChart, onEditChart, onDeleteChart }: {
+  finAccounts: FinancialAccount[];
+  onAdd: () => void;
+  onEdit: (a: FinancialAccount) => void;
+  onDelete: (id: string) => void;
+  chartAccounts: ChartAccount[];
+  onAddChart: () => void;
+  onEditChart: (a: ChartAccount) => void;
+  onDeleteChart: (id: string) => void;
+}) {
+  const [subTab, setSubTab] = useState<'fin' | 'chart'>('fin');
+  const totalBalance = finAccounts.reduce((s, a) => s + Number(a.current_balance), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 w-fit">
+        <button onClick={() => setSubTab('fin')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'fin' ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>حساب‌های مالی</button>
+        <button onClick={() => setSubTab('chart')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'chart' ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>دفتر کل</button>
+      </div>
+
+      {subTab === 'fin' ? (
+        <>
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-500">مجموع موجودی: <span className="font-bold text-gray-800" dir="ltr">{Math.round(totalBalance).toLocaleString('fa-IR')} ت</span></div>
+            <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold shadow-md shadow-orange-100 whitespace-nowrap">
+              <Plus className="w-4 h-4" /><span>حساب جدید</span>
+            </button>
+          </div>
+          {finAccounts.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 flex flex-col items-center justify-center py-16 text-center">
+              <Landmark className="w-12 h-12 text-gray-200 mb-3" />
+              <p className="text-sm text-gray-400">هنوز حسابی ثبت نشده است</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {finAccounts.map(a => (
+                <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${a.account_type === 'bank' ? 'bg-blue-50' : a.account_type === 'cash' ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+                        {a.account_type === 'bank' ? <Landmark className="w-5 h-5 text-blue-500" /> : a.account_type === 'cash' ? <Banknote className="w-5 h-5 text-emerald-500" /> : <Wallet className="w-5 h-5 text-amber-500" />}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-800 text-sm">{a.name}</h4>
+                        <p className="text-xs text-gray-400">{finAcctTypeLabels[a.account_type] || a.account_type}</p>
+                      </div>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded-full ${a.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
+                      {a.is_active ? 'فعال' : 'غیرفعال'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-xs text-gray-500">
+                    {a.bank_name && <div>بانک: {a.bank_name}</div>}
+                    {a.account_number && <div dir="ltr">شماره: {a.account_number}</div>}
+                    {a.card_number && <div dir="ltr">کارت: {a.card_number}</div>}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400">موجودی فعلی</p>
+                      <p className="text-sm font-bold text-gray-800" dir="ltr">{Math.round(Number(a.current_balance)).toLocaleString('fa-IR')} ت</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => onEdit(a)} className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50"><Edit3 className="w-4 h-4" /></button>
+                      <button onClick={() => onDelete(a.id)} className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">دفتر کل و حساب‌های سیستمی</p>
+            <button onClick={onAddChart} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold shadow-md shadow-orange-100 whitespace-nowrap">
+              <Plus className="w-4 h-4" /><span>حساب جدید</span>
+            </button>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-50 text-gray-400 text-xs">
+                    <th className="text-right font-medium px-4 py-3">کد</th>
+                    <th className="text-right font-medium px-4 py-3">نام</th>
+                    <th className="text-right font-medium px-4 py-3">نوع</th>
+                    <th className="text-right font-medium px-4 py-3">سطح</th>
+                    <th className="text-right font-medium px-4 py-3">وضعیت</th>
+                    <th className="text-center font-medium px-4 py-3">عملیات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chartAccounts.map(a => (
+                    <tr key={a.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <td className="px-4 py-3 font-medium text-gray-700" dir="ltr">{a.code}</td>
+                      <td className="px-4 py-3 text-gray-700">{a.name}</td>
+                      <td className="px-4 py-3"><span className={`text-xs px-2.5 py-1 rounded-full ${chartAcctTypeColors[a.account_type] || 'bg-gray-50 text-gray-500'}`}>{chartAcctTypeLabels[a.account_type] || a.account_type}</span></td>
+                      <td className="px-4 py-3 text-gray-500">{a.level.toLocaleString('fa-IR')}</td>
+                      <td className="px-4 py-3"><span className={`text-xs px-2.5 py-1 rounded-full ${a.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>{a.is_active ? 'فعال' : 'غیرفعال'}</span></td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => onEditChart(a)} className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50"><Edit3 className="w-4 h-4" /></button>
+                          <button onClick={() => onDeleteChart(a.id)} className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Journal Tab
+// ============================================================
+function JournalTab({ entries, chartAccounts, onAdd, onDelete }: {
+  entries: JournalEntry[];
+  chartAccounts: ChartAccount[];
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">سندهای دفتر روزنامه (۵۰ مورد اخیر)</p>
+        <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold shadow-md shadow-orange-100 whitespace-nowrap">
+          <Plus className="w-4 h-4" /><span>سند جدید</span>
+        </button>
+      </div>
+      {entries.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 flex flex-col items-center justify-center py-16 text-center">
+          <BookOpen className="w-12 h-12 text-gray-200 mb-3" />
+          <p className="text-sm text-gray-400">سندی ثبت نشده است</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-50 text-gray-400 text-xs">
+                  <th className="text-right font-medium px-4 py-3">شماره</th>
+                  <th className="text-right font-medium px-4 py-3">تاریخ</th>
+                  <th className="text-right font-medium px-4 py-3">شرح</th>
+                  <th className="text-right font-medium px-4 py-3">بدهکار</th>
+                  <th className="text-right font-medium px-4 py-3">بستانکار</th>
+                  <th className="text-right font-medium px-4 py-3">مبلغ</th>
+                  <th className="text-center font-medium px-4 py-3">عملیات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map(e => (
+                  <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium text-gray-700" dir="ltr">{e.entry_number}</td>
+                    <td className="px-4 py-3 text-gray-500">{new Date(e.entry_date).toLocaleDateString('fa-IR')}</td>
+                    <td className="px-4 py-3 text-gray-600">{e.description || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{e.debit_account?.name || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{e.credit_account?.name || '—'}</td>
+                    <td className="px-4 py-3 font-bold text-gray-800" dir="ltr">{Math.round(Number(e.amount)).toLocaleString('fa-IR')} ت</td>
+                    <td className="px-4 py-3 text-center">
+                      <button onClick={() => onDelete(e.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Budgets Tab
+// ============================================================
+function BudgetsTab({ budgets, onAdd, onEdit, onDelete }: {
+  budgets: Budget[];
+  onAdd: () => void;
+  onEdit: (b: Budget) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">بودجه‌ریزی دوره‌ای</p>
+        <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold shadow-md shadow-orange-100 whitespace-nowrap">
+          <Plus className="w-4 h-4" /><span>بودجه جدید</span>
+        </button>
+      </div>
+      {budgets.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 flex flex-col items-center justify-center py-16 text-center">
+          <PiggyBank className="w-12 h-12 text-gray-200 mb-3" />
+          <p className="text-sm text-gray-400">هنوز بودجه‌ای تعریف نشده است</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {budgets.map(b => (
+            <div key={b.id} className="bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                    <PiggyBank className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800 text-sm">{b.name}</h4>
+                    <p className="text-xs text-gray-400">{budgetPeriodLabels[b.period_type] || b.period_type}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-50">
+                <div>
+                  <p className="text-xs text-gray-400">بودجه درآمد</p>
+                  <p className="text-sm font-bold text-emerald-600" dir="ltr">{Math.round(Number(b.revenue_budget)).toLocaleString('fa-IR')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">بودجه هزینه</p>
+                  <p className="text-sm font-bold text-red-600" dir="ltr">{Math.round(Number(b.expense_budget)).toLocaleString('fa-IR')}</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">{new Date(b.period_start).toLocaleDateString('fa-IR')} تا {new Date(b.period_end).toLocaleDateString('fa-IR')}</p>
+              <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-50">
+                <button onClick={() => onEdit(b)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 hover:bg-blue-50 hover:text-blue-600"><Edit3 className="w-3.5 h-3.5" /><span>ویرایش</span></button>
+                <button onClick={() => onDelete(b.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 hover:bg-red-50 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /><span>حذف</span></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Financial Account Modal
+// ============================================================
+function FinAccountModal({ account, onClose, onSaved }: {
+  account: FinancialAccount | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: account?.name || '',
+    account_type: account?.account_type || 'cash',
+    bank_name: account?.bank_name || '',
+    bank_branch: account?.bank_branch || '',
+    account_number: account?.account_number || '',
+    card_number: account?.card_number || '',
+    iban: account?.iban || '',
+    opening_balance: account?.opening_balance ?? 0,
+    is_active: account?.is_active ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    const payload = {
+      ...form,
+      bank_name: form.bank_name || null,
+      bank_branch: form.bank_branch || null,
+      account_number: form.account_number || null,
+      card_number: form.card_number || null,
+      iban: form.iban || null,
+      opening_balance: Number(form.opening_balance),
+      current_balance: account ? undefined : Number(form.opening_balance),
+    };
+    const { error: err } = account
+      ? await supabase.from('financial_accounts').update(payload).eq('id', account.id)
+      : await supabase.from('financial_accounts').insert(payload);
+    if (err) { setError(err.message); setSaving(false); }
+    else onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50 sticky top-0 bg-white rounded-t-2xl z-10">
+          <h3 className="font-bold text-gray-800">{account ? 'ویرایش حساب' : 'حساب مالی جدید'}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3"><AlertCircle className="w-4 h-4" /><span>{error}</span></div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نام حساب <span className="text-red-400">*</span></label>
+            <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required className="modal-input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع حساب</label>
+            <select value={form.account_type} onChange={e => setForm({ ...form, account_type: e.target.value })} className="modal-input">
+              {Object.entries(finAcctTypeLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          {form.account_type === 'bank' && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">نام بانک</label>
+                  <input type="text" value={form.bank_name} onChange={e => setForm({ ...form, bank_name: e.target.value })} className="modal-input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">شعبه</label>
+                  <input type="text" value={form.bank_branch} onChange={e => setForm({ ...form, bank_branch: e.target.value })} className="modal-input" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">شماره حساب</label>
+                  <input type="text" value={form.account_number} onChange={e => setForm({ ...form, account_number: e.target.value })} dir="ltr" className="modal-input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">شماره کارت</label>
+                  <input type="text" value={form.card_number} onChange={e => setForm({ ...form, card_number: e.target.value })} dir="ltr" className="modal-input" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">شبا (IBAN)</label>
+                <input type="text" value={form.iban} onChange={e => setForm({ ...form, iban: e.target.value })} dir="ltr" className="modal-input" />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">موجودی ابتدایی (تومان)</label>
+            <input type="number" value={form.opening_balance || ''} onChange={e => setForm({ ...form, opening_balance: Number(e.target.value) })} min="0" dir="ltr" className="modal-input" placeholder="0" />
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} className="w-4 h-4 rounded accent-amber-500" />
+            <span className="text-sm text-gray-600">فعال</span>
+          </label>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold disabled:opacity-60">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>ذخیره</span>
+            </button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">انصراف</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Chart Account Modal
+// ============================================================
+function ChartAccountModal({ account, onClose, onSaved }: {
+  account: ChartAccount | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    code: account?.code || '',
+    name: account?.name || '',
+    account_type: account?.account_type || 'asset',
+    level: account?.level ?? 1,
+    is_active: account?.is_active ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    const payload = { ...form, level: Number(form.level) };
+    const { error: err } = account
+      ? await supabase.from('chart_accounts').update(payload).eq('id', account.id)
+      : await supabase.from('chart_accounts').insert(payload);
+    if (err) { setError(err.message); setSaving(false); }
+    else onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
+          <h3 className="font-bold text-gray-800">{account ? 'ویرایش حساب' : 'حساب دفتر کل جدید'}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3"><AlertCircle className="w-4 h-4" /><span>{error}</span></div>}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">کد <span className="text-red-400">*</span></label>
+              <input type="text" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} required dir="ltr" className="modal-input" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">سطح</label>
+              <input type="number" value={form.level} onChange={e => setForm({ ...form, level: Number(e.target.value) })} min="1" dir="ltr" className="modal-input" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نام <span className="text-red-400">*</span></label>
+            <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required className="modal-input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع حساب</label>
+            <select value={form.account_type} onChange={e => setForm({ ...form, account_type: e.target.value })} className="modal-input">
+              {Object.entries(chartAcctTypeLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} className="w-4 h-4 rounded accent-amber-500" />
+            <span className="text-sm text-gray-600">فعال</span>
+          </label>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold disabled:opacity-60">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>ذخیره</span>
+            </button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">انصراف</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Journal Modal
+// ============================================================
+function JournalModal({ chartAccounts, profile, onClose, onSaved }: {
+  chartAccounts: ChartAccount[];
+  profile: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    entry_number: '',
+    entry_date: new Date().toISOString().slice(0, 10),
+    description: '',
+    debit_account_id: '',
+    credit_account_id: '',
+    amount: 0,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    if (form.amount <= 0) { setError('مبلغ باید بزرگتر از صفر باشد'); setSaving(false); return; }
+    if (!form.debit_account_id || !form.credit_account_id) { setError('حساب بدهکار و بستانکار الزامی است'); setSaving(false); return; }
+
+    const { error: err } = await supabase.from('journal_entries').insert({
+      entry_number: form.entry_number || `JE-${Date.now()}`,
+      entry_date: new Date(form.entry_date).toISOString(),
+      description: form.description || null,
+      debit_account_id: form.debit_account_id,
+      credit_account_id: form.credit_account_id,
+      amount: Number(form.amount),
+      created_by: profile?.id || null,
+    });
+    if (err) { setError(err.message); setSaving(false); }
+    else onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
+          <h3 className="font-bold text-gray-800">سند دفتر روزنامه</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3"><AlertCircle className="w-4 h-4" /><span>{error}</span></div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">شماره سند</label>
+            <input type="text" value={form.entry_number} onChange={e => setForm({ ...form, entry_number: e.target.value })} dir="ltr" className="modal-input" placeholder="خودکار تولید می‌شود" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">تاریخ</label>
+            <input type="date" value={form.entry_date} onChange={e => setForm({ ...form, entry_date: e.target.value })} dir="ltr" className="modal-input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">حساب بدهکار <span className="text-red-400">*</span></label>
+            <select value={form.debit_account_id} onChange={e => setForm({ ...form, debit_account_id: e.target.value })} className="modal-input">
+              <option value="">انتخاب...</option>
+              {chartAccounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">حساب بستانکار <span className="text-red-400">*</span></label>
+            <select value={form.credit_account_id} onChange={e => setForm({ ...form, credit_account_id: e.target.value })} className="modal-input">
+              <option value="">انتخاب...</option>
+              {chartAccounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">مبلغ (تومان) <span className="text-red-400">*</span></label>
+            <input type="number" value={form.amount || ''} onChange={e => setForm({ ...form, amount: Number(e.target.value) })} min="0" dir="ltr" className="modal-input" placeholder="0" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">شرح</label>
+            <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="modal-input" placeholder="اختیاری" />
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold disabled:opacity-60">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>ثبت سند</span>
+            </button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">انصراف</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Budget Modal
+// ============================================================
+function BudgetModal({ budget, onClose, onSaved }: {
+  budget: Budget | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: budget?.name || '',
+    period_type: budget?.period_type || 'monthly',
+    period_start: budget?.period_start ? budget.period_start.slice(0, 10) : '',
+    period_end: budget?.period_end ? budget.period_end.slice(0, 10) : '',
+    revenue_budget: budget?.revenue_budget ?? 0,
+    expense_budget: budget?.expense_budget ?? 0,
+    notes: budget?.notes || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    if (!form.period_start || !form.period_end) { setError('تاریخ شروع و پایان الزامی است'); setSaving(false); return; }
+    const payload = {
+      name: form.name,
+      period_type: form.period_type,
+      period_start: form.period_start,
+      period_end: form.period_end,
+      revenue_budget: Number(form.revenue_budget),
+      expense_budget: Number(form.expense_budget),
+      notes: form.notes || null,
+    };
+    const { error: err } = budget
+      ? await supabase.from('budgets').update(payload).eq('id', budget.id)
+      : await supabase.from('budgets').insert(payload);
+    if (err) { setError(err.message); setSaving(false); }
+    else onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
+          <h3 className="font-bold text-gray-800">{budget ? 'ویرایش بودجه' : 'بودجه جدید'}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3"><AlertCircle className="w-4 h-4" /><span>{error}</span></div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نام <span className="text-red-400">*</span></label>
+            <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required className="modal-input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع دوره</label>
+            <select value={form.period_type} onChange={e => setForm({ ...form, period_type: e.target.value })} className="modal-input">
+              {Object.entries(budgetPeriodLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">شروع دوره</label>
+              <input type="date" value={form.period_start} onChange={e => setForm({ ...form, period_start: e.target.value })} dir="ltr" className="modal-input" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">پایان دوره</label>
+              <input type="date" value={form.period_end} onChange={e => setForm({ ...form, period_end: e.target.value })} dir="ltr" className="modal-input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">بودجه درآمد (تومان)</label>
+              <input type="number" value={form.revenue_budget || ''} onChange={e => setForm({ ...form, revenue_budget: Number(e.target.value) })} min="0" dir="ltr" className="modal-input" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">بودجه هزینه (تومان)</label>
+              <input type="number" value={form.expense_budget || ''} onChange={e => setForm({ ...form, expense_budget: Number(e.target.value) })} min="0" dir="ltr" className="modal-input" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">یادداشت</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} className="modal-input" />
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 text-white text-sm font-semibold disabled:opacity-60">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>ذخیره</span>
+            </button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">انصراف</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

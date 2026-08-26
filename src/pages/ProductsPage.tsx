@@ -25,11 +25,23 @@ type Product = {
   max_stock: number | null;
   packaging_cost: number;
   target_food_cost_percent: number | null;
+  available_days: string[] | null;
+  show_as_out_of_stock: boolean;
   created_at: string;
   updated_at: string;
   product_categories?: { name: string } | null;
   units?: { name: string; symbol: string } | null;
 };
+
+const dayOptions: { key: string; label: string }[] = [
+  { key: 'sat', label: 'شنبه' },
+  { key: 'sun', label: 'یکشنبه' },
+  { key: 'mon', label: 'دوشنبه' },
+  { key: 'tue', label: 'سه‌شنبه' },
+  { key: 'wed', label: 'چهارشنبه' },
+  { key: 'thu', label: 'پنجشنبه' },
+  { key: 'fri', label: 'جمعه' },
+];
 
 type Category = { id: string; name: string; parent_id: string | null };
 type Unit = { id: string; name: string; symbol: string; is_base: boolean };
@@ -231,9 +243,14 @@ export function ProductsPage() {
                       {Number(p.purchase_price).toLocaleString('fa-IR')}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2.5 py-1 rounded-full ${p.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
-                        {p.is_active ? 'فعال' : 'غیرفعال'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs px-2.5 py-1 rounded-full ${p.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
+                          {p.is_active ? 'فعال' : 'غیرفعال'}
+                        </span>
+                        {p.show_as_out_of_stock && (
+                          <span className="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-600">ناموجود</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
@@ -323,6 +340,8 @@ function ProductModal({
     max_stock: product?.max_stock || '',
     packaging_cost: product?.packaging_cost || 0,
     target_food_cost_percent: product?.target_food_cost_percent || '',
+    available_days: product?.available_days || ['sat','sun','mon','tue','wed','thu','fri'],
+    show_as_out_of_stock: product?.show_as_out_of_stock ?? false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -345,6 +364,7 @@ function ProductModal({
       max_discount_percent: Number(form.max_discount_percent),
       min_stock: Number(form.min_stock),
       packaging_cost: Number(form.packaging_cost),
+      available_days: form.available_days,
     };
 
     let result;
@@ -445,6 +465,39 @@ function ProductModal({
           <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
             rows={2} className="modal-input" placeholder="اختیاری" />
         </Field>
+
+        {/* Available Days */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">روزهای موجودی</label>
+          <div className="flex flex-wrap gap-2">
+            {dayOptions.map(d => {
+              const selected = form.available_days.includes(d.key);
+              return (
+                <button key={d.key} type="button"
+                  onClick={() => setForm({
+                    ...form,
+                    available_days: selected
+                      ? form.available_days.filter(x => x !== d.key)
+                      : [...form.available_days, d.key],
+                  })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    selected
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                  }`}>
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Show as out of stock */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.show_as_out_of_stock} onChange={e => setForm({...form, show_as_out_of_stock: e.target.checked})}
+            className="w-4 h-4 rounded accent-amber-500" />
+          <span className="text-sm text-gray-600">نمایش به‌عنوان ناموجود (حتی اگر موجودی دارد)</span>
+        </label>
 
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={form.is_active} onChange={e => setForm({...form, is_active: e.target.checked})}
